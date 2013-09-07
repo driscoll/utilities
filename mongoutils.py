@@ -26,4 +26,13 @@ def convert_date(tweetdate):
     """
     return rfc3339.parse_datetime(tweetdate)
 
+def from_postedTime(postedTime):
+    """Convert date an ISO formatted strings to Python datetime objects
+    """
+    return datetime.datetime(int(postedTime[:4]),
+                             int(postedTime[5:7]),
+                             int(postedTime[8:10]),
+                             int(postedTime[11:13]),
+                             int(postedTime[14:16]),
+                             int(postedTime[17:19]))
 

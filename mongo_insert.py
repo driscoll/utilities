@@ -121,21 +121,21 @@ if __name__=="__main__":
         # and create a Python datetime object
         # MongoDB will store this as a native date obj
         if 'postedTime' in tweet:
-            dt = convert_date(tweet['postedTime'])
+            dt = from_postedTime(tweet['postedTime'])
             tweet['postedTimeObj'] = dt
             last_tweet = dt.isoformat()
 
         if 'postedTime' in tweet['actor']):
-            dt = convert_date(tweet['actor']['postedTime'])
+            dt = from_postedTime(tweet['actor']['postedTime'])
             tweet['actor']['postedTimeObj'] = dt
 
         if 'postedTime' in tweet['object']):
-            dt = convert_date(tweet['object']['postedTime'])
+            dt = from_postedTime(tweet['object']['postedTime'])
             tweet['object']['postedTimeObj'] = dt
 
         if 'actor' in tweet['object']:
             if 'postedTime' in tweet['object']['actor']:
-                dt = convert_date(tweet['object']['actor']['postedTime'])
+                dt = from_postedTime(tweet['object']['actor']['postedTime'])
                 tweet['object']['actor']['postedTimeObj'] = dt
 
         # Next, create fields for user_id and tweet_id
