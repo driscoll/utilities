@@ -1,9 +1,20 @@
-#!/usr/local/bin/python
+# -*- coding: utf-8 -*-
 """
 Insert tweet(s) in Activity Streams 
 format into MongoDB
 
-Kevin Driscoll, 2012
+
+From a local file:
+$ cat my_tweets*.json | python mongo_insert.py --rules=rules.txt db_name collection 2> failed_inserts.txt
+
+From a remote file:
+$ ssh username@server 'cat /home/username/mydata/tweets*' | python mongo_insert.py --rules=rules.txt db_name collection 2> failed_inserts.txt
+
+From an HTTP stream:
+$ curl | python mongo_insert.py --rules=rules.txt db_name collection 2> failed_inserts.txt
+
+
+Kevin Driscoll, 2012, 2013
 
 """
 
@@ -103,30 +114,27 @@ if __name__=="__main__":
         # Check if it's matching a Gnip rule we care about: 
         if rules:
             if not tweet_matches_rules(tweet, rules):
-                # failures += 1 
-                # if failures % 500 == 0:
-                #    print '{0}\t{1}\t{2}'.format(inserts, failures, last_tweet)
                 line = sys.stdin.readline().strip()
                 continue
 
         # If it worked, interpret the postedTime str
         # and create a Python datetime object
         # MongoDB will store this as a native date obj
-        if 'postedTime' in tweet.keys():
+        if 'postedTime' in tweet:
             dt = convert_date(tweet['postedTime'])
             tweet['postedTimeObj'] = dt
             last_tweet = dt.isoformat()
 
-        if 'postedTime' in tweet['actor'].keys():
+        if 'postedTime' in tweet['actor']):
             dt = convert_date(tweet['actor']['postedTime'])
             tweet['actor']['postedTimeObj'] = dt
 
-        if 'postedTime' in tweet['object'].keys():
+        if 'postedTime' in tweet['object']):
             dt = convert_date(tweet['object']['postedTime'])
             tweet['object']['postedTimeObj'] = dt
 
         if 'actor' in tweet['object']:
-            if 'postedTime' in tweet['object']['actor'].keys():
+            if 'postedTime' in tweet['object']['actor']:
                 dt = convert_date(tweet['object']['actor']['postedTime'])
                 tweet['object']['actor']['postedTimeObj'] = dt
 
@@ -135,10 +143,10 @@ if __name__=="__main__":
         tweet['id_str'] = extract_tweet_id(tweet['id'])
         tweet['_id'] = tweet['id_str']
         tweet['actor']['id_str'] = extract_user_id(tweet['actor']['id'])
-        if 'id' in tweet['object'].keys():
+        if 'id' in tweet['object']):
             tweet['object']['id_str'] = extract_tweet_id(tweet['object']['id'])
         if 'actor' in tweet['object']:
-            if 'id' in tweet['object']['actor'].keys():
+            if 'id' in tweet['object']['actor']:
                 tweet['object']['actor']['id_str'] = extract_tweet_id(tweet['object']['actor']['id'])
 
         # Now insert it into the collection 
