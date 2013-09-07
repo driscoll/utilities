@@ -25,7 +25,6 @@ import argparse
 import json
 import pymongo
 import sys
-import rfc3339
 
 def init(HOST, PORT, DB):
     conn = pymongo.Connection(HOST, int(PORT))

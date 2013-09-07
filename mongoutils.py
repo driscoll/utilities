@@ -6,7 +6,6 @@ Kevin Driscoll, 2012
 
 """
 import pymongo
-import rfc3339
 
 def tweet_matches_rules(thistweet, somerules):
     """ Returns true if thistweet matched one 
@@ -18,13 +17,6 @@ def tweet_matches_rules(thistweet, somerules):
             match_found = True
             break
     return match_found
-
-def convert_date(tweetdate):
-    """ tweetdate is string representing the date in 
-        Gnip's Activity Streams format
-        Return datetime obj for insert into mongodb
-    """
-    return rfc3339.parse_datetime(tweetdate)
 
 def from_postedTime(postedTime):
     """Convert date an ISO formatted strings to Python datetime objects
