@@ -27,7 +27,7 @@ import os
 import pymongo
 import sys
 
-def init(HOST, PORT, DB):
+def init(HOST, PORT, DB)):
     conn = pymongo.Connection(HOST, int(PORT))
     return conn[DB]
 
@@ -125,11 +125,11 @@ if __name__=="__main__":
             tweet['postedTimeObj'] = dt
             last_tweet = dt.isoformat()
 
-        if 'postedTime' in tweet['actor']):
+        if 'postedTime' in tweet['actor']:
             dt = from_postedTime(tweet['actor']['postedTime'])
             tweet['actor']['postedTimeObj'] = dt
 
-        if 'postedTime' in tweet['object']):
+        if 'postedTime' in tweet['object']:
             dt = from_postedTime(tweet['object']['postedTime'])
             tweet['object']['postedTimeObj'] = dt
 
@@ -143,7 +143,7 @@ if __name__=="__main__":
         tweet['id_str'] = extract_tweet_id(tweet['id'])
         tweet['_id'] = tweet['id_str']
         tweet['actor']['id_str'] = extract_user_id(tweet['actor']['id'])
-        if 'id' in tweet['object']):
+        if 'id' in tweet['object']:
             tweet['object']['id_str'] = extract_tweet_id(tweet['object']['id'])
         if 'actor' in tweet['object']:
             if 'id' in tweet['object']['actor']:
