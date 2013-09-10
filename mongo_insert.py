@@ -23,6 +23,7 @@ from mongoutils import *
 from tweetutils import *
 import argparse
 import json
+import os
 import pymongo
 import sys
 
@@ -103,7 +104,7 @@ if __name__=="__main__":
             line = sys.stdin.readline().strip()
             continue
 
-        if not 'gnip' in tweet.keys():
+        if not 'gnip' in tweet:
             notgnip += 1 
             if notgnip % 500 == 0:
                 print '{0}\t{1}\t{2}\t{3}'.format(inserts, valueerror, notgnip, last_tweet)

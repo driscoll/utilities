@@ -2,10 +2,10 @@
 Utility functions and constants
 for working with MongoDB
 
-Kevin Driscoll, 2012
+Kevin Driscoll, 2012, 2013
 
 """
-import pymongo
+import datetime
 
 def tweet_matches_rules(thistweet, somerules):
     """ Returns true if thistweet matched one 
@@ -27,4 +27,3 @@ def from_postedTime(postedTime):
                              int(postedTime[11:13]),
                              int(postedTime[14:16]),
                              int(postedTime[17:19]))
-
