@@ -27,7 +27,7 @@ import os
 import pymongo
 import sys
 
-def init(HOST, PORT, DB)):
+def init(HOST, PORT, DB):
     conn = pymongo.Connection(HOST, int(PORT))
     return conn[DB]
 
