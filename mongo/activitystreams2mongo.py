@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Insert tweet(s) in Activity Streams 
-format into MongoDB
-
+Insert tweet(s) in Activity Streams format into MongoDB
 
 From a local file:
 $ cat my_tweets*.json | python mongo_insert.py --rules=rules.txt db_name collection 2> failed_inserts.txt
@@ -19,7 +17,6 @@ Kevin Driscoll, 2012, 2013
 """
 
 from datetime import datetime
-from mongoutils import *
 from tweetutils import *
 import argparse
 import json
@@ -36,6 +33,28 @@ def insert(obj, db, collection):
 
 def save(obj, db, collection):
     return db[collection].save(obj)
+
+def from_postedTime(postedTime):
+    """Convert date an ISO formatted strings to Python datetime objects
+    """
+    return datetime.datetime(int(postedTime[:4]),
+                             int(postedTime[5:7]),
+                             int(postedTime[8:10]),
+                             int(postedTime[11:13]),
+                             int(postedTime[14:16]),
+                             int(postedTime[17:19]))
+
+def tweet_matches_rules(thistweet, somerules):
+    """ Returns true if thistweet matched one 
+        of the Gnip rules in somerules
+    """
+    match_found = False
+    for match in thistweet['gnip']['matching_rules']:
+        if match['value'] in somerules:
+            match_found = True
+            break
+    return match_found
+
 
 if __name__=="__main__":
 
