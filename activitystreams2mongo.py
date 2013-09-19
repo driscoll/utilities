@@ -2,22 +2,25 @@
 """
 Insert tweet(s) in Activity Streams format into MongoDB
 
+
 From a local file:
-$ cat my_tweets*.json | python mongo_insert.py --rules=rules.txt db_name collection 2> failed_inserts.txt
+$ cat my_tweets*.json | python activitystreams2mongo.py --rules=rules.txt db_name collection 2> failed_inserts.txt
 
 From a remote file:
-$ ssh username@server 'cat /home/username/mydata/tweets*' | python mongo_insert.py --rules=rules.txt db_name collection 2> failed_inserts.txt
+$ ssh username@server 'cat /home/username/mydata/tweets*' | python activitystreams2mongo.py --rules=rules.txt db_name collection 2> failed_inserts.txt
 
 From an HTTP stream:
-$ curl | python mongo_insert.py --rules=rules.txt db_name collection 2> failed_inserts.txt
+$ curl | python activitystreams2mongo.py --rules=rules.txt db_name collection 2> failed_inserts.txt
 
 
 Kevin Driscoll, 2012, 2013
 
 """
 
-from datetime import datetime
-from tweetutils import *
+from tweetutils import extract_tweet_id, 
+                        extract_user_id, 
+                        from_postedTime, 
+                        tweet_matches_rules
 import argparse
 import json
 import os
@@ -34,26 +37,8 @@ def insert(obj, db, collection):
 def save(obj, db, collection):
     return db[collection].save(obj)
 
-def from_postedTime(postedTime):
-    """Convert date an ISO formatted strings to Python datetime objects
-    """
-    return datetime.datetime(int(postedTime[:4]),
-                             int(postedTime[5:7]),
-                             int(postedTime[8:10]),
-                             int(postedTime[11:13]),
-                             int(postedTime[14:16]),
-                             int(postedTime[17:19]))
-
-def tweet_matches_rules(thistweet, somerules):
-    """ Returns true if thistweet matched one 
-        of the Gnip rules in somerules
-    """
-    match_found = False
-    for match in thistweet['gnip']['matching_rules']:
-        if match['value'] in somerules:
-            match_found = True
-            break
-    return match_found
+def next_line():
+    return sys.stdin.readline().strip()
 
 
 if __name__=="__main__":
@@ -64,13 +49,29 @@ if __name__=="__main__":
    
     # parse args
     parser = argparse.ArgumentParser(description='Insert JSON objects from stdin into MongoDB')
-    parser.add_argument('--host', type=str, default=HOST, help='Hostname of primary MongoDB node')
-    parser.add_argument('--port', type=str, default=PORT, help='Port number of primary MongoDB node')
-    parser.add_argument('--rules', type=str, default='', help='Path to file with Gnip rules, one per line')
-    parser.add_argument('db', metavar='DB', type=str, help='Database to insert into')
-    parser.add_argument('collection', metavar='COLLECTION', type=str, help='Collection in the database to insert into')
+    parser.add_argument('--host', 
+                        type=str, 
+                        default=HOST, 
+                        help='Hostname of primary MongoDB node')
+    parser.add_argument('--port', 
+                        type=str, 
+                        default=PORT, 
+                        help='Port number of primary MongoDB node')
+    parser.add_argument('--rules', 
+                        type=str, 
+                        default='', 
+                        help='Path to file with Gnip rules, one per line')
+    parser.add_argument('db', 
+                        metavar='DB', 
+                        type=str, 
+                        help='Database to insert into')
+    parser.add_argument('collection', 
+                        metavar='COLLECTION', 
+                        type=str, 
+                        help='Collection in the database to insert into')
     
     args = parser.parse_args()
+
     # Check if there are rules to read 
     rules = []
     print args.rules
@@ -92,7 +93,6 @@ if __name__=="__main__":
     print '\tPort       :\t{0}'.format(args.port)
     print '\tDatabase   :\t{0}'.format(args.db)
     print '\tCollection :\t{0}'.format(args.collection)
-    # print 'Insert\tFailure\tLast tweet timestamp'
     print 'Insert\tValueError\tNotGnip\tLast tweet timestamp'
 
     # connect to db
@@ -106,7 +106,7 @@ if __name__=="__main__":
     last_tweet  = ''
 
     # keep reading until there are no lines left
-    line = sys.stdin.readline().strip()
+    line = next_line()
     while line:
         # try to make a json obj out of it
         try:
@@ -120,20 +120,20 @@ if __name__=="__main__":
             valueerror+= 1 
             if valueerror % 500 == 0:
                 print '{0}\t{1}\t{2}\t{3}'.format(inserts, valueerror, notgnip, last_tweet)
-            line = sys.stdin.readline().strip()
+            line = next_line()
             continue
 
         if not 'gnip' in tweet:
             notgnip += 1 
             if notgnip % 500 == 0:
                 print '{0}\t{1}\t{2}\t{3}'.format(inserts, valueerror, notgnip, last_tweet)
-            line = sys.stdin.readline().strip()
+            line = next_line()
             continue
 
         # Check if it's matching a Gnip rule we care about: 
         if rules:
             if not tweet_matches_rules(tweet, rules):
-                line = sys.stdin.readline().strip()
+                line = next_line()
                 continue
 
         # If it worked, interpret the postedTime str
@@ -169,14 +169,13 @@ if __name__=="__main__":
                 tweet['object']['actor']['id_str'] = extract_tweet_id(tweet['object']['actor']['id'])
 
         # Now insert it into the collection 
-        # insert(tweet, db, args.collection)
         save(tweet, db, args.collection)
         inserts += 1
         if inserts % 50000 == 0:
             print '{0}\t{1}\t{2}\t{3}'.format(inserts, valueerror, notgnip, last_tweet)
 
         # Finally, get a new line
-        line = sys.stdin.readline().strip()
+        line = next_line()
 
     # Short summary to stdout
     print

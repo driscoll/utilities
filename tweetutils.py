@@ -1,16 +1,19 @@
-#!/usr/bin/python
 # -*- coding: utf-8 -*-
 """
 tweetutils.py
 
 Utility functions for dealing with tweets
+    Specifically those in Activity Streams 
+    format as provided by Gnip
+
+This is a catch-all module for my various
+projects. Import at your own risk!
 
 Kevin Driscoll (c) 2011
 
 """
 import codecs
 import csv
-import fileinput
 import httplib
 import json
 import os
@@ -18,15 +21,21 @@ import re
 import socket
 import sys
 import urllib2
-# Gnip Activity Streams conforms to RFC3339 time formatting
-# https://raw.github.com/tonyg/python-rfc3339/master/rfc3339.py
-import rfc3339
 from calendar import timegm
 from time import time, strftime, strptime, gmtime 
 from urlparse import urlsplit
 from collections import defaultdict
 from glob import glob
 from operator import add 
+
+
+#
+# Globals
+#
+
+# API calls
+TWITTER_REST_API_URL = u'http://api.twitter.com/'
+TWITTER_SEARCH_API_URL = u'http://search.twitter.com/search.json'
 
 # Make this longer if a lot of URLs aren't being resolved
 LENGTHEN_TIMEOUT = 3
@@ -37,11 +46,11 @@ TWITTER_DATETIME_FORMAT = '%a, %d %b %Y %H:%M:%S +0000'
 R6_DATETIME_FORMAT = '%m/%d/%y %H:%M'
 CM_DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 
-# API calls
-TWITTER_REST_API_URL = u'http://api.twitter.com/'
-TWITTER_SEARCH_API_URL = u'http://search.twitter.com/search.json'
 
+#
 # Regular expressions
+#
+
 SOURCE_RE = re.compile(r'<a href="([^"]*?)" rel="nofollow">([^<]*?)</a>')
 # INSANE URI matching regex from:
 # http://daringfireball.net/2010/07/improved_regex_for_matching_urls
@@ -61,6 +70,23 @@ re_youtube_id = [
 # Regex to match Twitter ID substrings from Gnip object
 re_tweet_id = re.compile(r':([0-9]*)$')
 re_user_id = re.compile(r':([0-9]*)$')                
+
+
+#
+# Extracting info from tweets
+#   even if the JSON object is malformed
+#
+
+def tweet_matches_rules(thistweet, somerules):
+    """ Returns true if thistweet matched one 
+        of the Gnip rules in somerules
+    """
+    match_found = False
+    for match in thistweet['gnip']['matching_rules']:
+        if match['value'] in somerules:
+            match_found = True
+            break
+    return match_found
 
 def extract_user_id(s):
     """ Return Twitter User ID found in s
@@ -82,18 +108,21 @@ def extract_tweet_id(s):
     else:
         return None
 
-
-def parse_youtube_id(url):
-    """Parse a URL in search of a YouTube ID
-        Returns str with YT ID or '' if not found
+def extract_source(source):
+    """Return (name, url) from source field
     """
-    ytid = ''
-    for regex in re_youtube_id:
-        m = regex.search(url)
-        if m:
-            ytid = m.group(1)
-            break
-    return ytid
+    m = SOURCE_RE.match(source)
+    if m:
+        url = m.group(1)
+        name = m.group(2)
+    else:
+        url = ''
+        name = source
+    return name, url
+
+#
+# String utilities 
+#
 
 def force_utf8(s):
     """Return string s decoded with UTF-8
@@ -131,24 +160,22 @@ def dumb_csv_row(seq):
     """
     return u'"{0}"'.format(u'","'.join(seq))
 
-def error_log(s):
-    timestamp = unicode(time())
-    try:
-        print ': '.join([timestamp, s])
-    except:
-        print '(Error trying to print error. Sorry!)'
 
-def extract_source(source):
-    """Return (name, url) from source field
+#
+# URLs
+#
+
+def parse_youtube_id(url):
+    """Parse a URL in search of a YouTube ID
+        Returns str with YT ID or '' if not found
     """
-    m = SOURCE_RE.match(source)
-    if m:
-        url = m.group(1)
-        name = m.group(2)
-    else:
-        url = ''
-        name = source
-    return name, url
+    ytid = ''
+    for regex in re_youtube_id:
+        m = regex.search(url)
+        if m:
+            ytid = m.group(1)
+            break
+    return ytid
 
 def extract_domain(url):
     """Try to extract domain and TLD from url
@@ -166,7 +193,7 @@ def extract_domain(url):
         return None
 
 def clean_url(url):
-    """Return lowercased with http:// added if neccessary
+    """Return with http:// added if neccessary
     """
     # Sometimes urls don't include http(s)
     if not (url[0:4] == 'http'):
@@ -229,6 +256,22 @@ def lengthen(shorturl):
         longurl = u'BadStatusLine.'
     return longurl
 
+#
+# Dates and times
+#
+
+def from_postedTime(postedTime):
+    """Convert date an ISO formatted strings to Python datetime objects
+        Note: this is much faster than parsing the string
+                but requires strictly formatted input.
+    """
+    return datetime.datetime(int(postedTime[:4]),
+                             int(postedTime[5:7]),
+                             int(postedTime[8:10]),
+                             int(postedTime[11:13]),
+                             int(postedTime[14:16]),
+                             int(postedTime[17:19]))
+
 def epoch_to_timestamp(epoch, timestamp_format=GNIP_DATETIME_FORMAT):
     """Convert string timestamp to sec since epoch
     using date_format to decode the string
@@ -252,6 +295,31 @@ def timestamp_to_epoch(timestamp, timestamp_format=GNIP_DATETIME_FORMAT):
         # timestamp didn't match the timestamp_format
         epoch = u''
     return epoch
+
+#
+# Error management 
+#
+
+def die(s=None):
+    if s:
+        sys.stderr.write(s.encode('utf-8','replace'))
+        sys.stderr.write('\n')
+    sys.exit(1)
+
+def error_log(s):
+    timestamp = unicode(time())
+    try:
+        s = ': '.join([timestamp, s])
+        s += '\n'
+        sys.stderr.write(s.encode('utf-8', 'replace'))
+    except:
+        s = '(Error trying to print error. Sorry!)\n'
+        sys.stderr.write(s.encode('utf-8', 'replace'))
+
+
+#
+#  File I/O
+#
 
 def itertweets(gnipfn):
     """Iterator yields valid tweet objects found in gnipfn 
@@ -290,9 +358,3 @@ def itertweets(gnipfn):
 
             # Otherwise, ditch it
             continue
-
-def die(s=None):
-    if s:
-        print s.encode('utf-8','replace')
-        print
-    sys.exit(1)
