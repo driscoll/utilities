@@ -82,10 +82,36 @@ def tweet_matches_rules(thistweet, somerules):
         of the Gnip rules in somerules
     """
     match_found = False
-    for match in thistweet['gnip']['matching_rules']:
-        if match['value'] in somerules:
-            match_found = True
-            break
+    if 'gnip' in thistweet:
+        for match in thistweet['gnip']['matching_rules']:
+            if match['value'] in somerules:
+                match_found = True
+                break
+    else:
+        # Assume this is a 'native' tweet
+        # Gnip provided this format until Feb 28, 2012
+        s = thistweet.get('text','')
+        for u in thistweet.get('entities',{}).get('urls',[]):
+            url = u.get('url','')
+            if url:
+                s += ' ' + url
+            expanded = u.get('expanded_url','')
+            if expanded:
+                s += ' ' + expanded
+        if 'retweeted_status' in thistweet:
+            rt = thistweet.get('retweeted_status')
+            s += rt.get('text','')
+            for u in rt.get('entities',{}).get('urls',[]):
+                url = u.get('url','')
+                if url:
+                    s += ' ' + url
+                expanded = u.get('expanded_url','')
+                if expanded:
+                    s += ' ' + expanded
+        for rule in somerules:
+            if rule in s:
+                match_found = True
+                break
     return match_found
 
 def extract_user_id(s):
