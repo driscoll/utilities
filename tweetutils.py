@@ -14,6 +14,7 @@ Kevin Driscoll (c) 2011
 """
 import codecs
 import csv
+import datetime
 import httplib
 import json
 import os
@@ -51,6 +52,9 @@ CM_DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 # Regular expressions
 #
 
+RETWEET_RE = re.compile(r'(\"@|RT @|MT @|via @)([A-Za-z0-9_]+)')
+VIA_RE = re.compile(r'via @[a-z0-9_]*$')
+
 SOURCE_RE = re.compile(r'<a href="([^"]*?)" rel="nofollow">([^<]*?)</a>')
 # INSANE URI matching regex from:
 # http://daringfireball.net/2010/07/improved_regex_for_matching_urls
@@ -76,6 +80,74 @@ re_user_id = re.compile(r':([0-9]*)$')
 # Extracting info from tweets
 #   even if the JSON object is malformed
 #
+def parse_retweet_native(tweet):
+    rt = {}
+    # Is it identified as a RT by Twitter?
+    if 'retweeted_status' in tweet:
+        retweeted_status = tweet.get('retweeted_status')
+        retweeted_user = retweeted_status.get('user', {})
+        rt = {
+            u'edited': False,
+            u'retweeted_author_id_str': retweeted_user.get('id_str', ''),
+            u'retweeted_author_screenname': retweeted_user.get('screen_name', ''),
+            u'retweeted_status_id_str': retweeted_status.get('id_str', '')
+        }
+    else:
+        text = tweet.get(u'text', '')
+        m = RETWEET_RE.search(text)
+        if m:
+            retweeted_author_username = m.group(2)
+            rt = {
+                u'edited': False,
+                u'retweeted_author_username': retweeted_author_username,
+                u'retweeted_author_id_str': '',
+                u'retweeted_status_id_str': ''
+            }
+            # Is it edited?
+            if not text[:2].lower() in ('rt', 'mt'):
+                if (text[:2] == '"@'):
+                    if not (text[-1] == '"'):
+                        rt[u'edited'] = True
+                elif not VIA_RE.search(text.lower()):
+                        rt[u'edited'] = True
+    return rt
+
+def parse_retweet_activity_streams(tweet):
+    rt = {}
+    if tweet.get(u'verb', u'') == 'share':
+        retweeted_status = tweet.get('object', {})
+        retweeted_status_id_str = extract_tweet_id(retweeted_status.get('id', ''))
+        retweeted_author = retweeted_status.get('actor', {})
+        retweeted_author_id_str = extract_user_id(retweeted_author.get('id', ''))
+        rt = {
+            u'edited': False,
+            u'retweeted_status_id_str': retweeted_status_id_str,
+            u'retweeted_author_id_str': retweeted_author_id_str,
+            u'retweeted_author_username': retweeted_author.get('preferredUsername', u'')
+        }
+    else:
+        m = RETWEET_RE.search(tweet.get(u'body', ''))
+        if m:
+            retweeted_author_username = m.group(2)
+            rt = {
+                u'edited': False,
+                u'retweeted_author_username': retweeted_author_username,
+                u'retweeted_status_id_str': '',
+                u'retweeted_author_id_str': ''
+            }
+            if not tweet[u'body'][:2].lower() in ('rt', 'mt'):
+                if (tweet[u'body'][:2] == '"@'):
+                    if not (tweet[u'body'][-1] == '"'):
+                        rt[u'edited'] = True
+                elif not VIA_RE.search(tweet[u'body'].lower()):
+                        rt[u'edited'] = True
+    return rt
+
+def parse_retweet(tweet):
+    if 'gnip' in tweet:
+        return parse_retweet_activity_streams(tweet)
+    else:
+        return parse_retweet_native(tweet)
 
 def tweet_matches_rules(thistweet, somerules):
     """ Returns true if thistweet matched one 
