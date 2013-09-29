@@ -333,7 +333,6 @@ def lengthen(shorturl):
         longurl = unicode(e)
     except urllib2.URLError, e:
         error_log(u'urllib2.URLError trying to lengthen this URL: {0}'.format(shorturl))
-        error_log('urllib2.URLError trying to lengthen this URL: {0}'.format(shorturl))
         error_log(unicode(e))
         longurl = unicode(e)
     except socket.timeout:
@@ -405,7 +404,7 @@ def die(s=None):
     sys.exit(1)
 
 def error_log(s):
-    timestamp = unicode(time())
+    timestamp = datetime.datetime.now().isoformat()
     try:
         s = ': '.join([timestamp, s])
         s += '\n'
