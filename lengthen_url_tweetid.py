@@ -1,44 +1,38 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 """
-Try to lengthen all short URLs
-from output of extract_urls_from_raw.py
+Lengthen lots of shortURLs
 
-Input files should be:
+Uses the Longurl.org API whenever possible
+    http://longurl.org/api
 
-url_tweetid_YYYY-MM-DD.csv
+Depends
+    longurl https://bitbucket.org/mswbb/python-longurl/
 
-Input data should be:
+TODO
+    This works but is very slow. 
+    Need to reduce redundant checks.
 
-"url","tweetid"
-"http://some.url/foo","012345678901234567"
-
-Appends new short, long pairs to:
-
-short_long_YYYY-MM-DD.csv
+Kevin Driscoll, 2012, 2013
 
 """
 
-from glob import glob
-from operator import add 
 from tweetutils import *
 import codecs
-import httplib
-import urllib
-import urllib2
 import csv 
+import httplib
+import longurl
 import json
+import Queue
+import requests
 import sys 
 import threading
-import Queue
+import urllib
+import urllib2
 
 # Constants
-USER_AGENT = u'OWS Tweets/0.1 +http://civicpaths.uscannenberg.org/'
+USER_AGENT = u'shortURL lengthener/0.1 +http://kevindriscoll.info/'
 DEBUG = True
-
-# Filename formats
-URL_TWEETID_FORMAT = u'url_tweetid_%Y-%m-%d.csv'
-SHORT_LONG_FORMAT = u'short_long_%Y-%m-%d.csv'
 
 # HTTP Error codes
 HTTP_REDIRECT_CODES = [
@@ -51,9 +45,6 @@ HTTP_REDIRECT_CODES = [
     '303', # See other, Moved
     '307'  # Temporary redirect
 ]
-
-# Time format
-DIGITAL_CLOCK_FORMAT = u'%H:%M:%S'
 
 # HTTP Timeout (in seconds)
 # For more info on socket timeout:
@@ -73,6 +64,96 @@ class LazyHTTPRedirectHandler(urllib2.HTTPRedirectHandler):
         """On redirect, raise the HTTPError and die
         """
         return None
+
+#
+# Utility functions
+#
+
+def force_utf8(s):
+    """Return string s decoded with UTF-8
+    """
+    try:
+        s_utf8 = u'{0}'.format(s)
+    except UnicodeDecodeError as err:
+        try:
+            s_utf8 = u'{0}'.format(s.decode('utf-8', 'replace'))
+        except UnicodeDecodeError as err:
+            # Neither ascii nor utf8 could decode?
+            print err
+            print u'Tried but failed to fix it!'
+            s_utf8 = None
+    except:
+        raise
+    return s_utf8
+
+
+#
+# Communicating with longurl API
+# http://longurl.org/api
+#
+# Realized that someone already wrote this up as a module in 2010! 
+# Leaving this here for reference until I know for sure it's redundant
+#
+
+class Longurl():
+    def __init__(self):
+        self._session = requests.Session()
+        self._session.headers['User-Agent'] = USER_AGENT
+        self.known_services = []
+        self.update_known_services() 
+        self.cache = {}
+
+    def update_known_services(self):
+        endpoint = u'http://api.longurl.org/v2/services'
+        r = self._session.get(endpoint,
+                             params={'format': 'json'})
+        if r.ok:
+            known_services = r.json()
+            self.known_services = known_services.keys()
+
+    def lengthen(self, shorturl):
+        # This lookup could take a very long time
+        if shorturl in self.cache:
+            return self.cache[shorturl]
+        domain = urlparse.urlsplit(shorturl).netloc
+        if domain in self.known_services:
+            longurl = self._expand(shorturl)
+            if 'rel-canonical' in longurl:
+                lengthend = longurl['rel-canonical']
+            else:
+                lengthened = longurl['all-redirects'][-1]
+
+            # Add URLs to cache
+            self.cache[shorturl] = longurl 
+            self.cache[lengthened] = lengthened
+            for i in range(len(longurl['all-redirects'])-1):
+                self.cache[longurl['all-redirects'][i]] = lengthened
+        else:
+            return 
+
+    def _expand(self, shorturl):
+        endpoint = u'http://api.longurl.org/v2/expand'
+        params = {'format': 'json',
+                    'url': shorturl,
+                    'all-redirects': 1,
+                    'content-type': 1,
+                    'response-code': 1,
+                    'title': 1,
+                    'rel-canonical': 1,
+                    'meta-keywords': 1,
+                    'meta-description': 1}
+        r = self._session.get(endpoint,
+                            params=params)
+        if r.ok:
+            return r.json() 
+        else:
+            print r # TODO debug
+            return None 
+
+
+#
+# Old lengthening function
+#
 
 def lengthen_url(u):
     """Return short_long dict of all URLs
@@ -141,84 +222,10 @@ def lengthen_url(u):
     # Return short_long dict
     return short_long
 
-def construct_request_longurlplease(queue):
-    """Return api call for longurlplease.com
-    from URLs listed in queue
-    """
-    url = u'http://longurlplease.appspot.com/api/v1.1'
-    values = [urllib.urlencode({'q':u.encode('utf-8')}) for u in queue] 
-    data = '&'.join(values)
-    req = '?'.join([url, data])
-    return req
 
-def construct_request_longurl(shorturl):
-    """Return api call for longurl.org
-    for one url
-    """
-    url = u'http://api.longurl.org/v2/expand'
-    values = [
-        urllib.urlencode({'url':shorturl.encode('utf-8')}),
-        urllib.urlencode({'format':'json'}),
-        urllib.urlencode({'all-redirects':1})
-    ]
-    data = '&'.join(values)
-    req = '?'.join([url, data])
-    request = urllib2.Request(req)
-    request.add_header('User-Agent', USER_AGENT)
-    return request
-
-def lengthen_url_list(queue):
-    """ Returns dict of short:long pairs
-        TODO this could be refactored and recursive
-    """
-    opener = urllib2.build_opener()
-    req = construct_request(queue)
-    try:
-        response = opener.open(req, timeout=HTTP_TIMEOUT)
-    except urllib2.HTTPError, err:
-        print err
-        line = u'\n'.join(queue)
-        print line.encode('utf-8')
-        return {}
-
-    short_long = json.loads(response.read())
-    queue = [longurl for longurl in short_long.itervalues() if longurl]
-
-    # Repeat until you hit the end of all URLs
-    # TODO are there any URLs that never end?
-    while (len(queue) > 0):
-        req = construct_request(queue)
-        try:
-            response = opener.open(req, timeout=HTTP_TIMEOUT)
-        except urllib2.HTTPError, err:
-            line = u'\n'.join(queue)
-            print line.encode('utf-8')
-            break
-        # Test for exception here?
-        new_pairs = json.loads(response.read())
-        # Add new pairs to short_long
-        short_long.update(new_pairs)
-        # Reload the queue
-        queue = [longurl for longurl in new_pairs.itervalues() if longurl]
-    # Return short:long pairs 
-    return short_long
-
-def force_utf8(s):
-    """Return string s decoded with UTF-8
-    """
-    try:
-        s_utf8 = u'{0}'.format(s)
-    except UnicodeDecodeError as err:
-        try:
-            s_utf8 = u'{0}'.format(s.decode('utf-8', 'replace'))
-        except UnicodeDecodeError as err:
-            # Neither ascii nor utf8 could decode?
-            print err
-            print u'Tried but failed to fix it!'
-            s_utf8 = None
-    except:
-        raise
-    return s_utf8
+#
+# Old file i/o functions
+#
 
 def write_short_long(short_long, output_fp):
     """Write short_long to output_fp as CSV
@@ -247,41 +254,6 @@ def write_short_long(short_long, output_fp):
                 print u'It worked!'
         output_fp.flush()
 
-
-
-
-def usage():
-    print u'Oof. You forgot to specific input files(s).'
-    print u'Usage:'
-    print u'$ python expand_shorturl_longurl.py url_tweetid_201*.csv'
-    sys.exit(1)
-
-def lengthen_urls_sequential(url_tweetid_fp, short_long_fp):
-    """Lengthen URLs from url_tweetid_fp
-        Write pairs to short_long_fp
-        Returns number of URLs observed
-    """
-    url_count = 0
-    row_count = 0 
-    pairs = {}
-    for row in csv.reader(url_tweetid_fp, delimiter=','):
-        url = row[0]
-        short_long = lengthen_url(url)
-        pairs.update(short_long)
-        row_count += 1
-        url_count += len(short_long)
-        if (url_count % WRITE_QUEUE_SIZE) == 0:
-            if DEBUG:
-                print row_count,
-                print u'\t',
-                print url_count,
-                print u'\t',
-                print url
-            write_short_long(pairs, short_long_fp)
-            pairs = {}
-    write_short_long(pairs, short_long_fp)
-    return url_count
-
 def unicode_csv_reader(utf8_fp, **kwargs):
     # See: http://stackoverflow.com/questions/904041/reading-a-utf8-csv-file-with-python
     csv_reader = csv.reader(utf8_fp, **kwargs)
@@ -293,6 +265,11 @@ def unicode_csv_reader(utf8_fp, **kwargs):
             print "Skipping this row..."
         else:
             yield [unicode(cell, 'utf-8') for cell in row]
+
+
+#
+# Old thread worker functions
+#
 
 def lengthen_url_worker(url_queue, pairs_queue):
     """Lengthen URLs from url_queue
@@ -354,79 +331,144 @@ def lengthen_urls_parallel(url_tweetid_fp, short_long_fp):
 
 
 
+#
+# Functions for communicating with MongoDB
+#
 
-def get_short_long_fp(url_tweetid_fn):
-    """Return file obj for output based on format of url_tweetid_fn
-    """
-    try:
-        short_long_fn = strftime(SHORT_LONG_FORMAT, strptime(url_tweetid_fn, URL_TWEETID_FORMAT))
-        short_long_fp = codecs.open(short_long_fn, 'ab', 'utf-8')
-    except ValueError as err:
-        if DEBUG:
-            print err
-            print "Expected format: ",
-            print URL_TWEETID_FORMAT
-            print "Found: ",
-            print url_tweetid_fn
-            print "Skipping this input file."
-        short_long_fp = None
-    except IOError as err:
-        if DEBUG:
-            print err
-            print "Skipping this input file."
-        short_long_fp = None
-    return short_long_fp
 
-def get_url_tweetid_fp(url_tweetid_fn):
-    """Return file obj containing url_tweetid CSV
-    """
-    try:
-        # csv module doesn't support UTF-8
-        # url_tweetid_fp = codecs.open(url_tweetid_fn, 'rb', 'utf-8')
-        # open the traditional way 
-        url_tweetid_fp = open(url_tweetid_fn, 'rb')
-    except IOError as err:
-        if DEBUG:
-            print err
-            print "Skipping this input file."
-        url_tweetid_fp = None
-    return url_tweetid_fp
 
-def summary(fn, start, end, count=-1):
-    """Return nicely formatted summary string
+# 
+# New functions rewritten on 9/29/2013
+#
+
+
+def shorturl_prep_worker(itertweets, shorturlq):
+    """Take each tuple from the iterurls iterator.
+        Add it to the shorturlq queue.
+        Repeat.
     """
-    # Print out summary
-    summary = [u'Started at {0}'.format(strftime(DIGITAL_CLOCK_FORMAT, start))]
-    if count > -1:
-        summary.append(u'Followed {0} links'.format(count))
-    summary.append(u'Finished at {0}'.format(strftime(DIGITAL_CLOCK_FORMAT, end)))
-    return u'\n'.join(summary)
+    for tweet in itertweets:
+        tweet_id = tweet.get('_id')
+        for u in tweet['twitter_entities']['urls']:
+            if 'expanded_url' in u:
+                shorturlq.put((tweet_id, u['expanded_url']))
+
+            shorturlq.put((
+
+    for (url_id, shorturl) in iterurls:
+        shorturlq.put((url_id, shorturl))
+    print u'Done reading URLs from source.'
+
+def shorturl_lengthener_worker(short_queue, long_queue):
+    """Lengthen URLs from shorturl_queue
+        Put output into longurl_queue 
+    """
+    print "zug zug!",
+    while True:
+        try:
+            (url_id, shorturl) = short_queue.get(block=True, timeout=THREAD_TIMEOUT)
+        except Queue.Empty: 
+            print u'url_queue empty. Nothing left to lengthen. Returning to my cave.'
+            break
+        short_long = lengthen_url(shorturl)
+        long_queue.put((url_id, short_long))
+        long_queue.task_done()
+    
+def short_long_writer_worker(longurl_queue, output_function):
+    """Pop pairs off of queue
+        Write them to short_long_fp
+    """
+    while True:
+        try:
+            (url_id, short_long) = longurl_queue.get(block=True, timeout=THREAD_TIMEOUT)
+        except Queue.Empty:
+            print "short_long_queue empty. Nothing left to write."
+            break
+        output_function(url_id, short_long)
+        longurl_queue.task_done()
+
+def lengthen_each(iter_short_urls, output_long_urls):
+    """This is a manager function for a multithreaded process.
+        It will start up multiple threads to lengthen URLs in parallel.
+        iter_short_urls is an iterator that yields tuples: (url_id, short_urls)
+    """
+
+    shorturl_queue = Queue.Queue()
+    longurl_queue = Queue.Queue()
+    threads = []
+
+
+    # Thread to read shortURLs out of source
+    # and insert them into a queue
+    threads.append(threading.Thread(target=shorturl_prep_worker, 
+                                    args=(iter_short_urls, shorturl_queue)))
+
+    # Thread(s) to read shortURLs out of the queue
+    # Attempt to lengthen them
+    # And insert them into the completed queue
+    for _ in range(THREAD_MAX):
+        threads.append(threading.Thread(target=shorturl_lengthener_worker, 
+                                        args=(shorturl_queue, longurl_queue)))
+    
+    # Thread to read completed URLs out of the queue
+    # And output them according to the output function
+    threads.append(threading.Thread(target=short_long_writer_worker, 
+                                    args=(short_long_pairs, short_long_fp)))
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+
 
 
 
 if __name__=="__main__":
 
-    if (len(sys.argv) < 2):
-        usage()
-   
-    input_files = reduce(add, map(glob, sys.argv[1:]))
+    host = "localhost"
+    port = 9001
+    database = "debate"
+    input_collection = "oct2012"
+    output_collection = "urls"
 
-    for fn in input_files:
+    observation_periods = [
+        (datetime.datetime(2012, 10, 1),
+        datetime.datetime(2012, 10, 4)), 
+        (datetime.datetime(2012, 10, 15),
+        datetime.datetime(2012, 10, 18)),
+        (datetime.datetime(2012, 10, 21),
+        datetime.datetime(2012, 10, 24)),
+    ]
 
-        print 'Lengthening URLs from: {0} ...'.format(fn)
+    # Connect to Mongo database instance
+    mongo = pymongo.Connection(host=host, port=port)
+    db = mongo[database]
 
-        url_tweetid_fp = get_url_tweetid_fp(fn)
-        if not url_tweetid_fp:
-            continue
+    # This is a little funky
+    # The idea is to have a simple function that we can pass to a worker 
+    output_function = lambda obj: db[output_collection].save(obj)
 
-        short_long_fp = get_short_long_fp(fn) 
-        if not short_long_fp:
-            continue 
+    # TODO debuggin output 
+    sys.stderr.write(u'Started at ')
+    sys.stderr.write(datetime.datetime.now().isoformat())
+    sys.stderr.write(u'\n')
 
-        start_time = gmtime(time()-28800)
-        # url_count = lengthen_urls_sequential(url_tweetid_fp, short_long_fp)
-        lengthen_urls_parallel(url_tweetid_fp, short_long_fp)
-        end_time = gmtime(time()-28800)
-        # print summary(fn, start_time, end_time, url_count)
-        print summary(fn, start_time, end_time)
+    for start, end in observation_periods:
+        query = {'postedTimeObj':
+                    {'$gte': start,
+                    '$lt': end}}
+        projection = {'_id': True, 
+                        'twitter_entities': True, 
+                        'body': True, 
+                        'postedTimeObj': True}
+        # TODO limit() is for testing
+        cursor = db.oct2012.find(query, projection).limit(50) 
+        
+        # Kick off the manager
+        lengthen_each(cursor, db, output_collection)
 
+    # TODO output the time for debugging
+    sys.stderr.write(u'Finished at ')
+    sys.stderr.write(datetime.datetime.now().isoformat())
+    sys.stderr.write(u'\n')
