@@ -6,6 +6,14 @@ Basically, single-use hackjob of Ryan Barrett's Twitter module
 Sorry, Ryan!
 https://github.com/snarfed/activitystreams-unofficial
 
+Modifications made to match the Activity Streams objects
+produced by the Gnip PowerTrack Twitter Stream.
+
+
+TODO 
+    Problem is that RTs and originals are treated differently
+
+
 Kevin Driscoll, 2014
 
 """
@@ -65,227 +73,132 @@ def user_url(username):
 
 def status_url(username, _id):
     """Returns the Twitter URL for a tweet from a given user with a given id."""
-    return '%s/status/%d' % (user_url(username), _id)
+    uid = unicode(_id)
+    return '%s/status/%s' % (user_url(username), _id)
 
-def postprocess_activity(activity):
-    """Does source-independent post-processing of an activity, in place.
-
-    Right now just populates the title field.
-
-    Args:
-      activity: activity dict
-    """
-    # maps object type to human-readable name to use in title
-    TYPE_DISPLAY_NAMES = {'image': 'photo', 'product': 'gift'}
-
-    # maps verb to human-readable verb
-    DISPLAY_VERBS = {'like': 'likes', 'listen': 'listened to',
-                     'play': 'watched', 'read': 'read', 'give': 'gave'}
-
-    activity = trim_nulls(activity)
-    content = activity.get('object', {}).get('content')
-    actor_name = get_actor_name(activity.get('actor'))
-    obj = activity.get('object')
-
-    if 'title' not in activity:
-      if content:
-        activity['title'] = '%s%s%s' % (
-          actor_name + ': ' if actor_name else '',
-          content[:TITLE_LENGTH],
-          '...' if len(content) > TITLE_LENGTH else '')
-      elif obj:
-        app = activity.get('generator', {}).get('displayName')
-        obj_name = obj.get('displayName')
-        obj_type = TYPE_DISPLAY_NAMES.get(obj.get('objectType'), 'unknown')
-        activity['title'] = '%s %s %s%s.' % (
-          actor_name,
-          DISPLAY_VERBS.get(activity['verb'], 'posted'),
-          obj_name if obj_name else 'a %s' % obj_type,
-          ' on %s' % app if app else '')
-
-    return activity
-
-
-def tweet_to_activity(tweet):
-    """Converts a tweet to an activity.
-
-    Args:
-      tweet: dict, a decoded JSON tweet
-
-    Returns:
-      an ActivityStreams activity dict, ready to be JSON-encoded
-    """
-
-    activity = {}
-
-    obj = tweet_to_object(tweet)
-
-    if 'retweeted_status' in tweet:
-        activity['verb'] = 'share'
-        obj = tweet_to_object(tweet.get('retweeted_status'))
+def native_to_gnip(native):
+    if 'text' in native:
+        if 'retweeted_status' in native:
+            return native_to_share(native)
+        else:
+            return native_to_post(native)
     else:
-        activity['verb'] = 'post'
-        
-    activity = {
-      'published': obj.get('published'),
-      'id': obj.get('id'),
-      'url': obj.get('url'),
-      'actor': obj.get('author'),
-      'object': obj,
-      }
+        return {}
 
-    reply_to_screenname = tweet.get('in_reply_to_screen_name')
-    reply_to_id = tweet.get('in_reply_to_status_id')
-    if reply_to_id and reply_to_screenname:
-      activity['context'] = {
-        'inReplyTo': {
-          'objectType': 'note',
-          'id': tag_uri(DOMAIN, reply_to_id),
-          'url': status_url(reply_to_screenname, reply_to_id),
-          }
-        }
-
+def build_generator(tweet):
     # yes, the source field has an embedded HTML link. bleh.
     # https://dev.twitter.com/docs/api/1.1/get/statuses/show/
     parsed = re.search('<a href="([^"]+)".*>(.+)</a>', tweet.get('source', ''))
     if parsed:
       url, name = parsed.groups()
-      activity['generator'] = {'displayName': name, 'url': url}
+      generator = {'displayName': name, 'url': url, 'link': url}
+      return generator
+    return None
 
-    return postprocess_activity(activity)
+def native_to_post(original):
+    _id = unicode(original.get('id'))
+    actor = native_user_to_actor(original.get('user'))
+    postedTime = rfc2822_to_iso8601(original.get('created_at'))
+    post = {u'_id': _id,
+            u'actor': actor,
+            u'body': original.get('text'),
+            u'generator': build_generator(original),
+            u'gnip': {}, 
+            u'id': tag_uri(DOMAIN, _id), 
+            u'id_str': _id,
+            u'link': status_url(actor.get('preferredUsername'), _id),
+            u'object': native_to_object(original),
+            u'objectType': 'activity',
+            u'postedTime': postedTime,
+            u'provider': get_provider(original),
+            u'retweetCount': original.get('retweet_count'),
+            u'twitter_entities': get_entities(original),
+            u'verb': u'post'}
+    return post
 
-def tweet_to_object(tweet):
-    """Converts a tweet to an object.
+def native_to_share(rt):
+    _id = unicode(rt.get('id'))
+    actor = native_user_to_actor(rt.get('user'))
+    postedTime = rfc2822_to_iso8601(rt.get('created_at'))
+    _object = native_to_post(rt.get('retweeted_status'))
+    share = {u'_id': _id,
+                u'actor': actor,
+                u'body': rt.get('text'),
+                u'generator': build_generator(rt),
+                u'gnip': {},
+                u'id': tag_uri(DOMAIN, _id),
+                u'id_str': _id,
+                u'link': status_url(actor.get('preferredUsername'), _id),
+                u'object': _object,
+                u'objectType': 'activity',
+                u'postedTime': postedTime,
+                u'provider': get_provider(rt),
+                u'retweetCount': rt.get('retweet_count'),
+                u'twitter_entities': get_entities(rt),
+                u'verb': u'share'}
+    return share
 
-    Args:
-      tweet: dict, a decoded JSON tweet
+def native_to_object(tweet):
+    screen_name = tweet.get('user', {}).get('screen_name')
+    _id = unicode(tweet.get('id'))
+    _object = {u'id': tag_uri(DOMAIN, _id),
+                u'id_str': _id,
+                u'link': status_url(screen_name, _id),
+                u'objectType': u'note',
+                u'postedTime': rfc2822_to_iso8601(tweet.get('created_at')),
+                u'summary': tweet.get('text')}
+    return _object
 
-    Returns:
-      an ActivityStreams object dict, ready to be JSON-encoded
+def native_user_to_actor(user):
+    _id = unicode(user.get('id'))
+    actor = {u'displayName': user.get('name'),
+                u'followersCount': user.get('followers_count'),
+                u'friendsCount': user.get('friends_count'),
+                u'id': tag_uri(DOMAIN, _id),
+                u'id_str': _id, 
+                u'image': user.get('profile_image_url'),
+                u'languages': user.get('lang'),
+                u'link': user_url(user.get('screen_name')),
+                u'links': [{u'href': user.get('url'), u'rel': u'me'}], 
+                u'listedCount': user.get('listed_count'),
+                u'location': {u'displayName': user.get('location'), u'objectType': u'place'},
+                u'objectType': u'person',
+                u'postedTime': rfc2822_to_iso8601(user.get('created_at')),
+                u'preferredUsername': user.get('screen_name'), 
+                u'statusesCount': user.get('statuses_count'),
+                u'summary': user.get('description'),
+                u'twitterTimeZone': user.get(u'time_zone'),
+                u'utcOffset': user.get(u'utf_offset'), 
+                u'verified': user.get(u'verified')}
+    return actor
+
+def get_entities(tweet):
+    entities = tweet.get('entities')
+    if not entities:
+        entities = {u'hashtags': [],
+                    u'symbols': [],
+                    u'urls': [],
+                    u'user_mentions': []}
+    return entities
+
+def get_provider(tweet):
+    """ Same for every tweet
     """
-    obj = {}
+    return {u'displayName': u'Twitter',
+            u'link': u'http://www.twitter.com',
+            u'objectType': u'service'}
 
-    _id = tweet.get('id')
-    if not _id:
-      return {}
-
-    obj = {
-      'objectType': 'note',
-      'published': rfc2822_to_iso8601(tweet.get('created_at')),
-      # don't linkify embedded URLs. (they'll all be t.co URLs.) instead, use
-      # url entities below to replace them with the real URLs, and then linkify.
-      'content': tweet.get('text'),
-      'attachments': [],
-      }
-
-    user = tweet.get('user')
-    if user:
-      obj['author'] = user_to_actor(user)
-      username = obj['author'].get('username')
-      if username:
-        obj['id'] = tag_uri(DOMAIN, _id)
-        obj['url'] = status_url(username, _id)
-
-    entities = tweet.get('entities', {})
-
-    # currently the media list will only have photos. if that changes, though,
-    # we'll need to make this conditional on media.type.
-    # https://dev.twitter.com/docs/tweet-entities
-    media_url = entities.get('media', [{}])[0].get('media_url')
-    if media_url:
-      obj['image'] = {'url': media_url}
-      obj['attachments'].append({
-          'objectType': 'image',
-          'image': {'url': media_url},
-          })
-
-    # tags
-    obj['tags'] = [
-      {'objectType': 'person',
-       'id': tag_uri(DOMAIN, t.get('screen_name')),
-       'url': user_url(t.get('screen_name')),
-       'displayName': t.get('name'),
-       'indices': t.get('indices')
-       } for t in entities.get('user_mentions', [])
-      ] + [
-      {'objectType': 'hashtag',
-       'url': 'https://twitter.com/search?q=%23' + t.get('text'),
-       'indices': t.get('indices'),
-       } for t in entities.get('hashtags', [])
-      ] + [
-      # TODO: links are both tags and attachments right now. should they be one
-      # or the other?
-      # file:///home/ryanb/docs/activitystreams_schema_spec_1.0.html#tags-property
-      # file:///home/ryanb/docs/activitystreams_json_spec_1.0.html#object
-      {'objectType': 'article',
-       'url': t.get('expanded_url'),
-       # TODO: elide full URL?
-       'indices': t.get('indices'),
-       } for t in entities.get('urls', [])
-      ]
-    for t in obj['tags']:
-      indices = t.get('indices')
-      if indices:
-        t.update({
-            'startIndex': indices[0],
-            'length': indices[1] - indices[0],
-            })
-        del t['indices']
-
-    # location
-    place = tweet.get('place')
-    if place:
-      obj['location'] = {
-        'displayName': place.get('full_name'),
-        'id': place.get('id'),
-        }
-
-      # place['url'] is a JSON API url, not useful for end users. get the
-      # lat/lon from geo instead.
-      geo = tweet.get('geo')
-      if geo:
-        coords = geo.get('coordinates')
-        if coords:
-          obj['location']['url'] = ('https://maps.google.com/maps?q=%s,%s' %
-                                       tuple(coords))
-
-    return trim_nulls(obj)
-
-def user_to_actor(user):
-    """Converts a tweet to an activity.
-
-    Args:
-      user: dict, a decoded JSON Twitter user
-
-    Returns:
-      an ActivityStreams actor dict, ready to be JSON-encoded
-    """
-    username = user.get('screen_name')
-    if not username:
-      return {}
-
-    return trim_nulls({
-      'displayName': user.get('name'),
-      'image': {'url': user.get('profile_image_url')},
-      'id': tag_uri(DOMAIN, username) if username else None,
-      'published': rfc2822_to_iso8601(user.get('created_at')),
-      'url': user_url(username),
-      'location': {'displayName': user.get('location')},
-      'username': username,
-      'description': user.get('description'),
-      })
 
 if __name__=="__main__":
 
     for line in fileinput.input():
         native = json.loads(line.strip())
-        if 'text' in native:
-            activity = tweet_to_activity(native)
-            try:
-                s = json.dumps(activity, encoding="utf-16")
-            except UnicodeDecodeError:
-                s = json.dumps(activity, encoding="utf-8")
-            print s
+        gnip = native_to_gnip(native)
+        try:
+            s = json.dumps(gnip, encoding="utf-16")
+        except UnicodeDecodeError:
+            s = json.dumps(gnip, encoding="utf-8")
+        print s
 
 
 
