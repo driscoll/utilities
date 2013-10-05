@@ -9,12 +9,7 @@ https://github.com/snarfed/activitystreams-unofficial
 Modifications made to match the Activity Streams objects
 produced by the Gnip PowerTrack Twitter Stream.
 
-
-TODO 
-    Problem is that RTs and originals are treated differently
-
-
-Kevin Driscoll, 2014
+Kevin Driscoll, 2013
 
 """
 
@@ -24,10 +19,6 @@ import json
 import re
 import tweetutils
   
-# use this many chars from the beginning of the content in the title field.
-TITLE_LENGTH = 140
-DOMAIN = 'twitter.com'
-
 def rfc2822_to_iso8601(time_str):
     """Converts a timestamp string from RFC 2822 format to ISO 8601.
 
@@ -44,46 +35,39 @@ def rfc2822_to_iso8601(time_str):
     dt = datetime.datetime.strptime(without_timezone, '%a %b %d %H:%M:%S %Y')
     return dt.isoformat()
 
-def get_actor_name(actor):
-    """Returns the given actor's name if available, otherwise Unknown."""
-    return actor.get('displayName', 'Unknown') if actor else 'Unknown'
-
-def trim_nulls(value):
-    """Recursively removes dict elements with None or empty values."""
-    if isinstance(value, dict):
-        return dict((k, trim_nulls(v)) for k, v in value.items()
-                        if trim_nulls(v) not in (None, {}, [], ()))
-    elif isinstance(value, list):
-        return [trim_nulls(v) for v in value]
-    else:
-        return value
-
-def tag_uri(domain, name):
+def tag_uri(name):
     """Returns a tag URI string for the given domain and name.
 
     Example return value: 'tag:twitter.com,2012:snarfed_org/172417043893731329'
 
     Background on tag URIs: http://taguri.org/
     """
-    return 'tag:%s,%d:%s' % (domain, datetime.datetime.now().year, name)
+    return 'tag:twitter.com,%d:%s' % (datetime.datetime.now().year, name)
 
 def user_url(username):
     """Returns the Twitter URL for a given user."""
-    return 'http://%s/%s' % (DOMAIN, username)
+    return 'http://twitter.com/%s' % (username)
 
 def status_url(username, _id):
     """Returns the Twitter URL for a tweet from a given user with a given id."""
     uid = unicode(_id)
     return '%s/status/%s' % (user_url(username), _id)
 
-def native_to_gnip(native):
-    if 'text' in native:
-        if 'retweeted_status' in native:
-            return native_to_share(native)
-        else:
-            return native_to_post(native)
-    else:
-        return {}
+def get_entities(tweet):
+    entities = tweet.get('entities')
+    if not entities:
+        entities = {u'hashtags': [],
+                    u'symbols': [],
+                    u'urls': [],
+                    u'user_mentions': []}
+    return entities
+
+def get_provider(tweet):
+    """ Same for every tweet
+    """
+    return {u'displayName': u'Twitter',
+            u'link': u'http://www.twitter.com',
+            u'objectType': u'service'}
 
 def build_generator(tweet):
     # yes, the source field has an embedded HTML link. bleh.
@@ -104,7 +88,7 @@ def native_to_post(original):
             u'body': original.get('text'),
             u'generator': build_generator(original),
             u'gnip': {}, 
-            u'id': tag_uri(DOMAIN, _id), 
+            u'id': tag_uri(_id), 
             u'id_str': _id,
             u'link': status_url(actor.get('preferredUsername'), _id),
             u'object': native_to_object(original),
@@ -126,7 +110,7 @@ def native_to_share(rt):
                 u'body': rt.get('text'),
                 u'generator': build_generator(rt),
                 u'gnip': {},
-                u'id': tag_uri(DOMAIN, _id),
+                u'id': tag_uri(_id),
                 u'id_str': _id,
                 u'link': status_url(actor.get('preferredUsername'), _id),
                 u'object': _object,
@@ -141,7 +125,7 @@ def native_to_share(rt):
 def native_to_object(tweet):
     screen_name = tweet.get('user', {}).get('screen_name')
     _id = unicode(tweet.get('id'))
-    _object = {u'id': tag_uri(DOMAIN, _id),
+    _object = {u'id': tag_uri(_id),
                 u'id_str': _id,
                 u'link': status_url(screen_name, _id),
                 u'objectType': u'note',
@@ -154,7 +138,7 @@ def native_user_to_actor(user):
     actor = {u'displayName': user.get('name'),
                 u'followersCount': user.get('followers_count'),
                 u'friendsCount': user.get('friends_count'),
-                u'id': tag_uri(DOMAIN, _id),
+                u'id': tag_uri(_id),
                 u'id_str': _id, 
                 u'image': user.get('profile_image_url'),
                 u'languages': user.get('lang'),
@@ -172,21 +156,14 @@ def native_user_to_actor(user):
                 u'verified': user.get(u'verified')}
     return actor
 
-def get_entities(tweet):
-    entities = tweet.get('entities')
-    if not entities:
-        entities = {u'hashtags': [],
-                    u'symbols': [],
-                    u'urls': [],
-                    u'user_mentions': []}
-    return entities
-
-def get_provider(tweet):
-    """ Same for every tweet
-    """
-    return {u'displayName': u'Twitter',
-            u'link': u'http://www.twitter.com',
-            u'objectType': u'service'}
+def native_to_gnip(native):
+    if 'text' in native:
+        if 'retweeted_status' in native:
+            return native_to_share(native)
+        else:
+            return native_to_post(native)
+    else:
+        return {}
 
 
 if __name__=="__main__":
