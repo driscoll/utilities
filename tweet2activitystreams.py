@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-Tweet goes in; Activity Streams comes out
+Tweet goes in; Gnip-style Activity Streams comes out
 
-Basically, single-use hackjob of Ryan Barrett's Twitter module
-Sorry, Ryan!
+The purpose of this tool is to translate tweets from the
+Streaming API into a format comparable to the tweets provided
+by the Gnip PowerTrack Twitter Stream.
+
+It started out as a single-use hackjob of Ryan Barrett's Twitter 
+module. (Lo siento, Ryan!) Check that project out here:
 https://github.com/snarfed/activitystreams-unofficial
-
-Modifications made to match the Activity Streams objects
-produced by the Gnip PowerTrack Twitter Stream.
 
 Kevin Driscoll, 2013
 
