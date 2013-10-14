@@ -3,6 +3,7 @@
 Create a collection of only those tweets that contain links to YouTube videos
 
 Kevin Driscoll, 2013
+
 """
 
 from collections import Counter
@@ -18,11 +19,11 @@ if __name__=="__main__":
     output_collection = ""
 
     observation_periods = [
-        (datetime.datetime(2012, 10, 1),
-        datetime.datetime(2012, 10, 4)), 
-        (datetime.datetime(2012, 10, 15),
+        (datetime.datetime(2012, 10, 2), # First debate: Thur 10/4 1-2:30 UTC
+        datetime.datetime(2012, 10, 5)), 
+        (datetime.datetime(2012, 10, 15), # Second debate: Wed 10/17 1-2:30 UTC
         datetime.datetime(2012, 10, 18)),
-        (datetime.datetime(2012, 10, 21),
+        (datetime.datetime(2012, 10, 22), # Third debate: Tues 10/23 1-2:30 UTC
         datetime.datetime(2012, 10, 24)),
     ]
 
