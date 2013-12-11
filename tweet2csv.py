@@ -66,6 +66,6 @@ if __name__=="__main__":
             tweet = json.loads(l.strip())
             row = build_row(tweet)
             try:
-                csvw.writerow(build_row(row))
+                csvw.writerow(row)
             except UnicodeEncodeError:
                 print tweet
