@@ -66,6 +66,7 @@ re_youtube_id = [
     re.compile(r'youtube.com/vi/([A-Za-z0-9_-]{11})'), # youtube.com/vi/{vidid}
     re.compile(r'youtube.com/\?v=([A-Za-z0-9_-]{11})'), # youtube.com/?v={vidid}
     re.compile(r'youtube.com/\?vi=([A-Za-z0-9_-]{11})'), # youtube.com/?vi={vidid}
+    re.compile(r'youtube.com/watch?feature=player_embedded&v=([A-Za-z0-9_-]{11})'),
     re.compile(r'youtube.com/watch\?v=([A-Za-z0-9_-]{11})'), # youtube.com/watch?v={vidid}
     re.compile(r'youtube.com/watch\?vi=([A-Za-z0-9_-]{11})'), # youtube.com/watch?vi={vidid}
     re.compile(r'youtu.be/([A-Za-z0-9_-]{11})')     # youtu.be/{vidid}
